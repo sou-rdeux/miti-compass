@@ -1,36 +1,100 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 街歩きコンパス（Phase1 MVP）
 
-## Getting Started
+目的地の方角だけを頼りに歩く体験を検証するスマホ向けWebアプリ。
+「画面を見せるな、街を見せろ」。地図・ルート・現在地の数値は一切表示しない。
 
-First, run the development server:
+サーバー・DB・認証・地図APIは使わない。すべてブラウザ内で完結する1ページのアプリ。
+詳細な仕様は [`docs/spec.md`](./docs/spec.md) を参照。
+
+## 起動方法
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[http://localhost:3000](http://localhost:3000) をブラウザで開く。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+PCブラウザでは位置情報・方位センサーが利用できない（または挙動が異なる）ため、
+実際の動作確認はスマホ実機で行うこと（次項参照）。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## スマホ実機テスト（HTTPSが必要）
 
-## Learn More
+Geolocation API・DeviceOrientation API は **HTTPS 環境でのみ動作する**（`localhost` は例外として動作する場合があるが、スマホ実機から同一PCの `localhost` へ直接アクセスすることはできない）。そのため、スマホ実機で確認する場合は以下のいずれかの方法でHTTPS環境を用意する。
 
-To learn more about Next.js, take a look at the following resources:
+### 方法1：`next dev --experimental-https`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev -- --experimental-https
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+自己署名証明書でローカルサーバーがHTTPS化される。表示されたURL（`https://<PCのIPアドレス>:3000` など）にスマホからアクセスする（PCとスマホが同一ネットワークに接続されている必要がある）。自己署名証明書のため、初回アクセス時にブラウザの警告画面で「このまま進む」等を選択する必要がある。
 
-## Deploy on Vercel
+### 方法2：Vercelのプレビュー URL を使う
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Vercelにデプロイすると自動的にHTTPSのURLが発行されるため、警告画面を気にせず実機確認できる（次項参照）。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Vercelへのデプロイ方法
+
+### GitHub連携（推奨）
+
+1. このリポジトリをGitHubにプッシュする
+2. [Vercel](https://vercel.com/) にログインし、「Add New...」→「Project」から対象リポジトリを選択する
+3. フレームワークは自動的に Next.js と検出される。設定を変更せず「Deploy」する
+4. デプロイ完了後に発行されるURL（`https://xxxx.vercel.app`）にスマホでアクセスして確認する
+
+### Vercel CLI
+
+```bash
+npm i -g vercel
+vercel
+```
+
+指示に従ってログイン・プロジェクト設定を行うと、プレビュー用のURLが発行される。
+
+## スマホでの位置情報・方位センサーの許可方法
+
+「開始」ボタンを押すと、位置情報（GPS）の許可ダイアログ、iPhoneの場合は続けて方位センサーの許可ダイアログが表示される。それぞれ「許可」を選択することで、残り距離表示・コンパス矢印が有効になる。
+
+誤って「拒否」を選んでしまった場合、ブラウザ/OSが拒否を記憶し、再読み込みしても許可ダイアログが再表示されないことがある。その場合は以下の手順でブラウザの設定から許可を変更する。
+
+### 位置情報（GPS）が許可されない場合
+
+**iPhone（Safari）の場合**
+
+1. 「設定」アプリを開く
+2. 「Safari」を選択する
+3. 「位置情報」をタップする
+4. 「許可」を選択する（または、サイトごとの設定が必要な場合は「設定」>「プライバシーとセキュリティ」>「位置情報サービス」>「SafariのWebサイト」で該当サイトを「許可」に変更する）
+5. このページを再読み込みする
+
+**Android（Chrome）の場合**
+
+1. Chromeでこのページを開いた状態で、アドレスバー左側の鍵（またはアイコン）をタップする
+2. 「権限」または「サイトの設定」をタップする
+3. 「位置情報」を「許可」に変更する
+4. このページを再読み込みする（鍵アイコンから変更できない場合は、Chromeの「設定」>「サイトの設定」>「位置情報」から該当サイトを探して「許可」に変更する）
+
+### 方位センサー（コンパス）が許可されない場合
+
+方位センサーが使えない場合でも、残り距離の表示だけは機能し続ける。
+
+**iPhone（Safari）の場合**
+
+1. 「設定」アプリを開く
+2. 「Safari」を選択する
+3. 「モーションと方向のアクセス」をタップする
+4. スイッチを「オン」にする
+5. このページを再読み込みし、もう一度「開始」を押す
+
+**Android（Chrome）の場合**
+
+Android Chromeでは方位センサーに個別の許可ダイアログは無く、端末のセンサー自体が無効化されていない限り自動的に利用できる。矢印が表示されない場合は以下を確認する。
+
+1. 端末を取り出した状態（ポケットやケースに入れたままでない状態）で数秒待つ
+2. 端末を8の字を描くように軽く動かしてセンサーを初期化する
+3. それでも反応しない場合は、その端末・ブラウザの組み合わせでは方位センサーに対応していない可能性があるため、距離表示のみで利用する
+
+## 技術スタック
+
+Next.js（App Router）/ TypeScript（strict）/ Tailwind CSS / Vercel
