@@ -12,11 +12,23 @@ export interface GoalFormProps {
   onSubmit: (destination: { lat: number; lng: number }) => void;
   /** 権限確認が完了していない間はtrue（操作不可） */
   disabled: boolean;
+  /** 初期表示時に入力欄へ反映する値（localStorageからの復元用）。保存が無ければnull */
+  initialDestination: { lat: number; lng: number } | null;
 }
 
-export default function GoalForm({ onSubmit, disabled }: GoalFormProps) {
-  const [latText, setLatText] = useState("");
-  const [lngText, setLngText] = useState("");
+export default function GoalForm({
+  onSubmit,
+  disabled,
+  initialDestination,
+}: GoalFormProps) {
+  // initialDestinationは最初にマウントされた瞬間の値のみを使う（遅延初期化）。
+  // 以後initialDestination propが変化しても入力欄は上書きしない（spec.md 3.2節）。
+  const [latText, setLatText] = useState(() =>
+    initialDestination ? String(initialDestination.lat) : ""
+  );
+  const [lngText, setLngText] = useState(() =>
+    initialDestination ? String(initialDestination.lng) : ""
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {

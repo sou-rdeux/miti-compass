@@ -21,7 +21,7 @@
 |---|------|------|
 | 1 | タイトル | 「街歩きコンパス」固定文字列 |
 | 2 | 開始ボタン | 初期表示時のみ表示。タップでGPS・コンパスの許可を要求する |
-| 3 | 目的地設定フォーム（GoalForm） | 緯度入力・経度入力・「目的地設定」ボタン。権限確認が完了するまでは入力不可（disabled）。緯度・経度いずれの欄に「緯度, 経度」形式の文字列を貼り付けても、2つの数値を自動検出して両欄に振り分ける（15章参照） |
+| 3 | 目的地設定フォーム（GoalForm） | 緯度入力・経度入力・「目的地設定」ボタン。権限確認が完了するまでは入力不可（disabled）。緯度・経度いずれの欄に「緯度, 経度」形式の文字列を貼り付けても、2つの数値を自動検出して両欄に振り分ける（15章参照）。初期表示時、localStorageに保存済みの目的地があれば入力欄に自動反映される（16章参照） |
 | 4 | コンパス（Compass） | 目的地方向を指す大きな矢印。中央に円形の背景。コンパスが未許可・非対応の場合は矢印の代わりに「コンパスが使えません（距離表示のみ有効です）」を表示する（表示条件は2章・8章参照） |
 | 5 | 残り距離表示 / GOAL表示（DistanceDisplay） | 整数＋m（例：425m）。ゴール後は「GOAL」を大きく表示 |
 | 6 | GPS取得状態ラベル | 「取得中」「良好」「精度が低い」「未許可」のいずれか1つのテキストのみ |
@@ -58,6 +58,7 @@
 - **GPS信号の一時的ロスト（`TIMEOUT` / `POSITION_UNAVAILABLE`）は `gpsDenied` に遷移させない。** 許可（`PERMISSION_DENIED`）とは明確に区別し、一度でも位置情報を取得済みであれば直前の値を保持したまま、GPS状態ラベルを「取得中」に戻すのみとする。まだ一度も取得できていない場合は `awaitingDestination` 等の下に「GPSの電波を取得できません。屋外の見晴らしの良い場所に移動してください。」を表示する。
 - **目的地の再設定は常に可能。** `tracking` / `goal` のどちらの状態でもGoalFormは常に操作可能。再設定（送信）すると `goalReached` は `false` にリセットされ、`tracking` 状態に戻る。
 - **一度 `goalReached = true` になったら、距離が再び20mを超えても `goal` 表示を維持する。** 目的地の再設定（GoalFormの再送信）以外に `goal` から `tracking` へ戻る手段はない。
+- **ページ初期表示時、localStorageに保存済みの目的地があれば自動的に復元される。** 復元されるのは緯度・経度のみで、`goalReached` は復元せず常に `false` から始まる（復元後は必ず `tracking` 状態からスタートする）。GoalForm自体は許可フロー完了まで表示されないため、ユーザーの目には「開始してGoalFormが表示された時点で、既に前回の目的地が入っている」という形で見える。詳細は16章参照。
 
 ### 開始ボタン押下時の許可要求フロー（実装上重要な制約）
 
@@ -96,6 +97,8 @@ interface GoalFormProps {
   onSubmit: (destination: { lat: number; lng: number }) => void
   /** 権限確認が完了していない間はtrue（操作不可） */
   disabled: boolean
+  /** 初期表示時に入力欄へ反映する値（localStorageからの復元用）。保存が無ければnull */
+  initialDestination: { lat: number; lng: number } | null
 }
 ```
 
@@ -104,6 +107,7 @@ interface GoalFormProps {
 - バリデーションはコンポーネント内部で行い、NGの場合はフォーム直下に赤文字でエラーメッセージを表示し `onSubmit` を呼ばない（詳細は7章）。
 - 入力値はコンポーネント内部の `useState<string>` で文字列として保持し、送信時にのみ数値変換・検証を行う。
 - **座標の貼り付け対応**：緯度・経度いずれの入力欄にも同一の `onPaste` ハンドラを設定し、`utils/parseCoordinates.ts` の `parseCoordinates` 関数を使って貼り付け文字列を解析する。解析結果が「2値検出」であれば両欄に振り分け、それ以外（1値検出・検出不可）であればブラウザ標準のペースト動作に委ねる。詳細な解析ルール・UI挙動は15章参照。
+- **`initialDestination` による初期値復元**：緯度・経度の内部state（`useState<string>`）は `useState(() => initialDestination ? String(initialDestination.lat) : '')` のように**遅延初期化（lazy initializer）**でセットする。つまり `initialDestination` はGoalFormが**最初にマウントされた瞬間の値のみ**を使い、以後 `initialDestination` prop が変化してもGoalFormの入力欄を上書きしない（通常の制御/非制御の混在を避けるための単純化）。この方式が成立する前提は「GoalFormが実際にマウントされる時点で、`initialDestination`に渡る`destination`の値が既に確定（復元完了）していること」である。`app/page.tsx` 側は `destination` state自体を `useState(() => loadDestination())` という遅延初期化で持つ（16.3節）ため、`destination` の値は `Home` コンポーネントの最初のレンダーの時点で確定し、これはページ内のどの子コンポーネント（GoalForm含む）がマウントされるよりも必ず先である。したがって、GoalFormが`awaitingDestination`状態到達より前（許可確認中・GPS拒否等の表示）に先行してマウントされる実装であっても、この前提は自動的に満たされる。
 
 ### 3.3 `components/DistanceDisplay.tsx`
 
@@ -306,6 +310,33 @@ export const COMPASS_TIMEOUT_MS = 3000
 - `hooks/useCompass.ts` は `SMOOTHING_FACTOR` と `COMPASS_TIMEOUT_MS` をこのファイルからimportする（4.2節参照）。
 - `utils/distance.ts` の地球半径（6371000m）は物理定数であり調整対象ではないため、本ファイルに含めず `distance.ts` 内に定数定義してよい。
 
+### 5.7 `utils/destinationStorage.ts`
+
+目的地のlocalStorage保存・復元を行う**純粋関数群**（Reactに依存しない）。state管理やuseEffectのタイミング制御は持たず、「保存する」「読み込む」だけに責務を限定する。設計判断の詳細・利用側（`app/page.tsx`）の呼び出し方は16章を参照。
+
+```ts
+export interface StoredDestination {
+  lat: number
+  lng: number
+}
+
+/** 保存先のlocalStorageキー */
+export const DESTINATION_STORAGE_KEY = 'miti-compass:destination:v1'
+
+/** 目的地をlocalStorageに保存する。失敗しても例外を投げない（内部でcatchして無視する） */
+export function saveDestination(destination: StoredDestination): void
+
+/**
+ * localStorageから目的地を読み込む。
+ * 以下のいずれかに該当する場合はnullを返す（例外は投げない）：
+ * - localStorage自体が使えない（SSR時のwindow未定義、プライベートブラウズ等での例外）
+ * - 保存データが存在しない
+ * - JSON.parseに失敗する
+ * - 形式が不正（lat/lngがnumber型でない、NaN、緯度-90〜90・経度-180〜180の範囲外）
+ */
+export function loadDestination(): StoredDestination | null
+```
+
 ---
 
 ## 6. 型定義（非標準プロパティの拡張）
@@ -460,6 +491,7 @@ utils/
   goal.ts
   parseCoordinates.ts … 貼り付け文字列から緯度・経度を検出する純粋関数（5.5節・15章）
   constants.ts      … GPS精度閾値・EMA係数等、調整前提の定数を集約（5.6節）
+  destinationStorage.ts … 目的地のlocalStorage保存・読み込みの純粋関数（5.7節・16章）
 types/
   device-orientation.d.ts
 docs/
@@ -490,6 +522,8 @@ README.md            … 11章参照
 8. 緯度・経度の範囲外入力・数値以外の入力でエラー文言が表示され、目的地が設定されない
 9. GPS未許可・コンパス未許可（非対応）のそれぞれで、8章の文言が表示される
 10. 緯度欄・経度欄のどちらに `(35.1371196, 138.6607245)` 形式の文字列を貼り付けても、両欄に自動で振り分けられる（15章の対応形式すべてで確認する）
+11. 目的地設定後にページを再読み込みすると、保存されていた緯度・経度がGoalFormの入力欄・内部のdestinationに復元され、GOAL表示は復元されず常に計測中（tracking）状態から始まる（16章参照）
+12. ブラウザの設定でlocalStorageを無効化した状態・プライベートブラウズモードでも、目的地設定・コンパス表示・距離表示が通常通り動作する（保存機能のみ無効になり、エラーや画面停止は発生しない）
 
 ---
 
@@ -497,7 +531,7 @@ README.md            … 11章参照
 
 以下はユーザー要件になく、今回は実装しない。将来検討用に記録のみ。
 
-- 目的地・GOAL状態の `localStorage` への永続化（リロードしても状態維持）
+- ~~目的地の `localStorage` への永続化~~ → 2026-10-25の追加承認によりMVPに取り込み済み（16章）。ただし **GOAL状態（goalReached）の永続化は依然Phase2候補**（16章の通り、GOAL状態は意図的に保存しない）
 - 複数の目的地（経由地）の設定、履歴保存
 - 距離・方位の数値デバッグ表示切り替え機能
 - 音・バイブレーションによるGOAL通知
@@ -513,8 +547,8 @@ README.md            … 11章参照
 以下はいずれもユーザー承認済み。本章は設計判断の記録として残す。
 
 1. **コンパス未許可・非対応時の挙動**：矢印は出さず「距離表示のみ有効」として運用を継続する設計で承認。加えて、画面上で分かるように常設の「コンパスが使えません（距離表示のみ有効です）」表示を追加した（1章・2章・3.1節・8章に反映済み）。
-2. **GPS精度の閾値（良好/精度が低い）**：20mを境界値とすることで承認。実機テスト後に調整する前提であることを明記し、`utils/constants.ts` の `ACCURACY_GOOD_THRESHOLD_METERS` として一元管理する（5.5節）。
-3. **EMAスムージング係数（0.2）**：初期値0.2で承認。実機テスト後に調整する前提であることを明記し、`utils/constants.ts` の `SMOOTHING_FACTOR` として一元管理する（5.5節）。
+2. **GPS精度の閾値（良好/精度が低い）**：20mを境界値とすることで承認。実機テスト後に調整する前提であることを明記し、`utils/constants.ts` の `ACCURACY_GOOD_THRESHOLD_METERS` として一元管理する（5.6節）。
+3. **EMAスムージング係数（0.2）**：初期値0.2で承認。実機テスト後に調整する前提であることを明記し、`utils/constants.ts` の `SMOOTHING_FACTOR` として一元管理する（5.6節）。
 4. **再試行ボタンの限界**：ブラウザ/OSが拒否を記憶し再試行で解決できない場合がある制約を受け入れることで承認。iPhone（Safari）・Android（Chrome）それぞれの設定からの許可の開き方を具体的な手順として8.1節に明記した。
 5. **PWAアイコン画像**：仮アイコンで進めることで承認。
 6. **「開始」ボタンの扱い**：許可完了後は非表示にする設計で承認。
@@ -592,3 +626,75 @@ Googleマップ等からコピーした「緯度, 経度」形式の文字列を
 5. **意図しない数値の誤検出リスク**：解析は「数値らしき文字列を2個抽出できるか」だけで判定するため、座標以外の文字列（例：日付や関係のない数字を含む文章）を貼り付けた場合でも偶然2個の数値として誤検出される可能性がある。これは許容する。対象がGoalFormの緯度・経度欄に限定されていること、自動で目的地設定までは行われず最終的に既存の範囲チェック（7章）を通過しないと目的地が確定しないことから、実害は小さいと判断した。
 6. **貼り付け後の範囲外の値**：貼り付けによって入力欄に反映された値が緯度-90〜90／経度-180〜180の範囲外であっても、貼り付け時点ではエラー表示を行わない（貼り付けは値の反映のみ）。「目的地設定」ボタン押下時に、既存の7章の入力チェックが通常通り実行され、エラーが表示される。
 7. **数値の文字列化**：`parseCoordinates` の戻り値（`number`型）を入力欄のstateに反映する際は `String(result.lat)` のように変換する。GPS座標の値域（整数部3桁以下・小数部は現実的には10桁程度まで）ではJavaScriptの `Number → String` 変換で指数表記や精度の問題が発生しないため、貼り付け元の文字列をそのまま保持する方式ではなく、数値変換を経由する方式を採用する（`parseCoordinates` を純粋関数としてテストしやすくする目的とも合致する）。
+
+---
+
+## 16. 目的地のlocalStorage保存（2026-10-25追加承認）
+
+「目的地設定」を押した緯度・経度をブラウザのlocalStorageに保存し、次回ページを開いたときに自動で復元する機能。ユーザー承認済みの追加要件。サーバー・DBは使わず、あくまで**端末のブラウザ内だけに閉じた保存**であり、0章の「サーバー・DBは使わない」という制約には抵触しない。
+
+### 16.1 保存するデータ構造
+
+- 保存先：`localStorage`、キー名は `DESTINATION_STORAGE_KEY = 'miti-compass:destination:v1'`（5.7節）。末尾の `:v1` は将来データ形式を変更した際に、古い形式のデータを安全に無視できるようにするためのバージョン番号。
+- 値：`JSON.stringify({ lat, lng })` の文字列。`lat` / `lng` は `number` 型。
+- **`goalReached`（GOAL状態）は保存しない。** 保存データには目的地の緯度・経度以外のフィールドを一切含めない。
+
+### 16.2 保存タイミング
+
+- 保存処理は `app/page.tsx` 側（GoalFormの `onSubmit` コールバックの実装内）で行う。**GoalFormコンポーネント自身はlocalStorageに関与しない**（3.2節の「props駆動の表示専用コンポーネント」という方針を維持するため）。
+- `app/page.tsx` の `handleGoalSubmit(destination)`（GoalFormへ`onSubmit`として渡す関数）は、以下の順で処理する：
+  1. `setDestination(destination)`
+  2. `setGoalReached(false)`（目的地再設定時は必ずリセット。2章の既存ルールと同一）
+  3. `saveDestination(destination)`（`utils/destinationStorage.ts`、5.7節）
+- 入力エラーで `onSubmit` が呼ばれなかった場合（7章の範囲外・数値エラー時）は保存処理も実行されない（検証OKの場合のみ保存される）。
+
+### 16.3 復元タイミング
+
+- `app/page.tsx` の `destination` state は、**`useState` の遅延初期化（lazy initializer）** `useState<Coordinate | null>(() => loadDestination())` によって初期化する。`useEffect` 内で `loadDestination()` を呼んで `setDestination(...)` するという実装は採用しない。これは本プロジェクトのESLintルール `react-hooks/set-state-in-effect`（`useEffect` 本文内で直接 `setState` を呼ぶことを禁止するルール）に抵触するためであり、遅延初期化方式でも「ページマウント時に1回だけ復元する」という要件は同一に満たされる（むしろ `useEffect` の発火を待たず、`Home` コンポーネント自身の最初のレンダー時点で同期的に復元が完了するため、復元タイミングはより早く、GoalFormがどのタイミングでマウントされても復元済みの値を受け取れる）。
+- `destination` stateの初期値が決まるのは `Home` コンポーネント自身の最初の呼び出し時点であり、これはページ内のどの子コンポーネント（GoalForm含む）がマウントされるよりも必ず先に完了する。したがって3.2節で前提としていた「GoalFormは`awaitingDestination`状態到達までマウントされない」という制約は、この実装方式では復元の正しさを保証するための必須条件ではなくなる（GoalFormがどの状態から最初にマウントされても、`initialDestination`には既に復元済みの値が渡っている）。ただし、GoalForm自体を許可フロー完了前に無効化（`disabled`）して表示する設計自体は維持する。
+- GoalFormへは `initialDestination={destination}` として渡し、GoalForm側は3.2節で定義した遅延初期化でこれを入力欄の初期値として使う。
+- **`goalReached` はこの復元処理で一切操作しない。** 復元後の初期値は常に `false`（デフォルト値のまま）であり、常に `tracking` 状態からスタートする。
+  - 補足：復元した目的地の近くに既に端末がある場合、復元直後のGPS取得で距離が20m未満と判定され、通常の`tracking`→`goal`判定ロジックにより即座に`goal`状態へ遷移することがある。これは本機能にとって自然な挙動であり、意図的に防止しない。
+
+### 16.4 localStorage不使用環境でのフォールバック方針
+
+`utils/destinationStorage.ts` の `saveDestination` / `loadDestination`（5.7節）は、以下の方針で防御的に実装する。`any` は使用しない。
+
+- **実行環境チェック**：関数の先頭で `typeof window === 'undefined'` をチェックし、真であれば（SSR中などブラウザ環境でない場合）何もせず `void` / `null` を返す。本アプリの `app/page.tsx` はクライアントコンポーネントであり実際にはSSR中に呼ばれることはないが、ユーティリティ単体としての安全性のため防御する。
+- **例外の握りつぶし**：`localStorage.getItem` / `localStorage.setItem` の呼び出し、および `JSON.parse` / `JSON.stringify` の呼び出しはすべて `try...catch` で囲む。プライベートブラウズモードやストレージ無効化設定などで例外（`SecurityError`、`QuotaExceededError`等）が発生しても、`catch` 内で何もせず（あるいは `console.warn` で開発用ログのみ出し）、`saveDestination` は正常終了、`loadDestination` は `null` を返す。**例外を呼び出し元（`app/page.tsx`）に伝播させない。**
+- **呼び出し元への影響なし**：`app/page.tsx` は `saveDestination` / `loadDestination` の戻り値だけを見て動作するため、これらが「保存/復元できなかった」という結果を返すだけで、目的地設定・コンパス表示・距離表示といった他の機能には一切影響しない（12章の受け入れ基準12番）。
+
+### 16.5 保存データが不正な形式だった場合の扱い
+
+`loadDestination()` は、以下のいずれかに該当する場合、**「保存なし」と完全に同一に扱い `null` を返す**（エラー表示やログ以上の特別処理はしない）。
+
+- `localStorage.getItem(DESTINATION_STORAGE_KEY)` が `null`（未保存）
+- 取得した文字列が `JSON.parse` できない（壊れたJSON）
+- `JSON.parse` の結果が `object` でない、または `null`
+- `lat` / `lng` のいずれかが `number` 型でない、または `Number.isFinite` が `false`（`NaN` / `Infinity` を含む）
+- `lat` が `-90〜90` の範囲外、または `lng` が `-180〜180` の範囲外（7章と同じ範囲チェックをここでも適用する）
+
+型チェックは `unknown` 型とユーザー定義の型ガード関数で行う（`any` は使わない）。例：
+
+```ts
+function isStoredDestination(value: unknown): value is StoredDestination {
+  if (typeof value !== 'object' || value === null) return false
+  const { lat, lng } = value as Record<string, unknown>
+  return (
+    typeof lat === 'number' && Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
+    typeof lng === 'number' && Number.isFinite(lng) && lng >= -180 && lng <= 180
+  )
+}
+```
+
+壊れた・不正なデータが見つかった場合に、そのキーをlocalStorageから削除する（クリーンアップする）かどうかは実装上の任意とし、**仕様としては必須としない**（`null` を返すことだけが必須の挙動であり、削除してもしなくても動作上の差はない）。
+
+### 16.6 既存設計への影響まとめ
+
+- **2章（状態遷移）**：初期表示時の復元ルールを補足ルールに追加済み（本章参照のリンクを追加）。
+- **3.2節（GoalForm）**：`initialDestination` propを追加し、遅延初期化で初期値として使う設計を追加済み。
+- **5章（utils設計）**：`5.7 utils/destinationStorage.ts` を新設済み。
+- **10章（ファイル構成）**：`utils/destinationStorage.ts` を追加済み。
+- **12章（完成条件）**：保存・復元の確認項目（#11）、localStorage不使用環境でも通常動作する確認項目（#12）を追加済み。
+- **13章（Phase2候補）**：目的地の永続化はMVPに取り込み済みである一方、**GOAL状態（goalReached）の永続化は依然Phase2候補**として明記済み（意図的にスコープ外とする）。
+- **hooksではなくutilsに置いた理由**：`saveDestination` / `loadDestination` はReactのライフサイクルやイベント購読（`useEffect`での継続的なlisten、`useRef`での可変値保持など）を必要としない単純な読み書き関数であり、`useGeolocation` / `useCompass` のような「継続的にブラウザAPIを購読するstateful hook」とは性質が異なる。4章のhooksはイベントリスナーの登録・解除・継続的な状態更新を担うものに限定し、単発の読み書きは5章のutilsに置くという一貫した方針を採用した。

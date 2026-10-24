@@ -16,6 +16,7 @@ import { calcArrowAngle } from "../utils/compassAngle";
 import type { Coordinate } from "../utils/distance";
 import { calcDistanceMeters } from "../utils/distance";
 import { ACCURACY_GOOD_THRESHOLD_METERS } from "../utils/constants";
+import { loadDestination, saveDestination } from "../utils/destinationStorage";
 import { isGoalReached } from "../utils/goal";
 
 type AppState =
@@ -90,7 +91,13 @@ export default function Home() {
   const compass = useCompass();
 
   const [started, setStarted] = useState(false);
-  const [destination, setDestination] = useState<Coordinate | null>(null);
+  // 初回レンダー時に1回だけ、localStorageに保存済みの目的地を復元する（spec.md 16.3節）。
+  // 遅延初期化（lazy initializer）を使うことで、useEffect内でのsetState呼び出し
+  // （react-hooks/set-state-in-effectルールが禁止するパターン）を避けつつ、
+  // マウント時に1回だけ実行される要件を満たす。goalReachedはここでは一切操作せず、常にfalseから始まる。
+  const [destination, setDestination] = useState<Coordinate | null>(() =>
+    loadDestination()
+  );
   const [goalReached, setGoalReached] = useState(false);
 
   const compassDisabled =
@@ -155,6 +162,7 @@ export default function Home() {
   const handleGoalSubmit = (dest: Coordinate) => {
     setDestination(dest);
     setGoalReached(false);
+    saveDestination(dest);
   };
 
   const formEnabled =
@@ -185,7 +193,11 @@ export default function Home() {
         <>
           <p className="text-sm font-medium">GPS: {geoLabel}</p>
 
-          <GoalForm onSubmit={handleGoalSubmit} disabled={!formEnabled} />
+          <GoalForm
+            onSubmit={handleGoalSubmit}
+            disabled={!formEnabled}
+            initialDestination={destination}
+          />
 
           {appState === "requestingPermission" && (
             <p className="text-center text-base">
