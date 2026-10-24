@@ -3,8 +3,8 @@
 // components/GoalForm.tsx
 // 目的地（緯度・経度）の入力フォーム
 
-import { useState } from "react";
-import type { ClipboardEvent, FormEvent } from "react";
+import { useRef, useState } from "react";
+import type { ChangeEvent, ClipboardEvent, FormEvent } from "react";
 import { parseCoordinates } from "../utils/parseCoordinates";
 
 export interface GoalFormProps {
@@ -30,6 +30,11 @@ export default function GoalForm({
     initialDestination ? String(initialDestination.lng) : ""
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // 「座標を貼り付け」ボタン押下時の案内メッセージ（7章のバリデーションエラーとは別の表示領域、spec.md 17.4節）
+  const [pasteButtonMessage, setPasteButtonMessage] = useState<string | null>(
+    null
+  );
+  const latInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -66,26 +71,85 @@ export default function GoalForm({
       event.preventDefault();
       setLatText(String(result.lat));
       setLngText(String(result.lng));
+      setPasteButtonMessage(null);
     }
     // single・noneの場合はブラウザ標準のペースト動作に委ねる
   };
 
+  // 入力欄の編集時は「貼り付け」ボタンの案内メッセージをクリアする（spec.md 17.4節）
+  const handleLatChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setLatText(event.target.value);
+    setPasteButtonMessage(null);
+  };
+
+  const handleLngChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setLngText(event.target.value);
+    setPasteButtonMessage(null);
+  };
+
+  // 「📋 Googleマップの座標を貼り付け」ボタン：クリップボードを読み取り解析する（spec.md 17章）
+  const handlePasteButtonClick = async () => {
+    const hasClipboardReadText =
+      typeof navigator !== "undefined" &&
+      typeof navigator.clipboard?.readText === "function";
+
+    if (!hasClipboardReadText) {
+      setPasteButtonMessage("入力欄を長押しして貼り付けてください");
+      latInputRef.current?.focus();
+      return;
+    }
+
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      setPasteButtonMessage("入力欄を長押しして貼り付けてください");
+      latInputRef.current?.focus();
+      return;
+    }
+
+    const result = parseCoordinates(text);
+
+    if (result.kind === "pair") {
+      setLatText(String(result.lat));
+      setLngText(String(result.lng));
+      setPasteButtonMessage(null);
+      return;
+    }
+
+    setPasteButtonMessage(
+      "座標が見つかりません。Googleマップで地点を長押しして座標をコピーしてください"
+    );
+  };
+
   return (
     <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={handlePasteButtonClick}
+        className="w-full rounded border border-black px-4 py-2 text-base font-medium disabled:opacity-50"
+      >
+        📋 Googleマップの座標を貼り付け
+      </button>
+      {pasteButtonMessage !== null && (
+        <p className="text-sm text-blue-700">{pasteButtonMessage}</p>
+      )}
       <div className="flex flex-col gap-1">
         <label htmlFor="goal-lat" className="text-sm font-medium">
           緯度
         </label>
         <input
           id="goal-lat"
+          ref={latInputRef}
           type="text"
           inputMode="decimal"
           value={latText}
           disabled={disabled}
-          onChange={(e) => setLatText(e.target.value)}
+          onChange={handleLatChange}
           onPaste={handlePaste}
           className="w-full rounded border border-black px-3 py-2 text-lg disabled:opacity-50"
-          placeholder="例：35.6895"
+          placeholder="緯度　例：35.137（貼り付け可）"
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -98,10 +162,10 @@ export default function GoalForm({
           inputMode="decimal"
           value={lngText}
           disabled={disabled}
-          onChange={(e) => setLngText(e.target.value)}
+          onChange={handleLngChange}
           onPaste={handlePaste}
           className="w-full rounded border border-black px-3 py-2 text-lg disabled:opacity-50"
-          placeholder="例：139.6917"
+          placeholder="経度　例：138.660（貼り付け可）"
         />
       </div>
       {errorMessage !== null && (
