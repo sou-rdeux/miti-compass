@@ -4,7 +4,8 @@
 // 目的地（緯度・経度）の入力フォーム
 
 import { useState } from "react";
-import type { FormEvent } from "react";
+import type { ClipboardEvent, FormEvent } from "react";
+import { parseCoordinates } from "../utils/parseCoordinates";
 
 export interface GoalFormProps {
   /** 入力値が検証OKだった場合にのみ呼ばれる */
@@ -44,6 +45,19 @@ export default function GoalForm({ onSubmit, disabled }: GoalFormProps) {
     onSubmit({ lat, lng });
   };
 
+  // 緯度欄・経度欄どちらに貼り付けても、2値（緯度, 経度）を検出した場合は両欄に振り分ける（spec.md 15章）
+  const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
+    const text = event.clipboardData.getData("text");
+    const result = parseCoordinates(text);
+
+    if (result.kind === "pair") {
+      event.preventDefault();
+      setLatText(String(result.lat));
+      setLngText(String(result.lng));
+    }
+    // single・noneの場合はブラウザ標準のペースト動作に委ねる
+  };
+
   return (
     <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
       <div className="flex flex-col gap-1">
@@ -57,6 +71,7 @@ export default function GoalForm({ onSubmit, disabled }: GoalFormProps) {
           value={latText}
           disabled={disabled}
           onChange={(e) => setLatText(e.target.value)}
+          onPaste={handlePaste}
           className="w-full rounded border border-black px-3 py-2 text-lg disabled:opacity-50"
           placeholder="例：35.6895"
         />
@@ -72,6 +87,7 @@ export default function GoalForm({ onSubmit, disabled }: GoalFormProps) {
           value={lngText}
           disabled={disabled}
           onChange={(e) => setLngText(e.target.value)}
+          onPaste={handlePaste}
           className="w-full rounded border border-black px-3 py-2 text-lg disabled:opacity-50"
           placeholder="例：139.6917"
         />
